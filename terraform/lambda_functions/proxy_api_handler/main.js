@@ -789,7 +789,7 @@ function executeCampaign(entity, campaignId) {
 		});
 
 		// Calculate the necessary volume size
-		var volumeSize = Math.ceil(manifest.wordlistSize / 1073741824) + 1;
+		var volumeSize = Math.ceil(manifest.wordlistSize / 1073741824) + 5;
 		// with a minimum of 10GB
 		// volumeSize = (volumeSize > 10) ? volumeSize : 10;
 
