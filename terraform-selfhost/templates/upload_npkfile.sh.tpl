@@ -27,7 +27,12 @@ fi
 
 export AWS_DEFAULT_REGION=us-west-2
 export AWS_DEFAULT_OUTPUT=json
-export AWS_PROFILE=$(jq -r '.awsProfile' ../terraform/npk-settings.json)
+if [ -f "../terraform/npk-settings.json" ]; then
+	export AWS_PROFILE=$(jq -r '.awsProfile' ../terraform/npk-settings.json)
+else 
+	echo "npk-settings.json was not found. Default AWS_PROFILE 'npk' will be used."
+	export AWS_PROFILE="npk"
+fi
 
 BUCKET1=${de1}
 REGION1="us-east-1"
