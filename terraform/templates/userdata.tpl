@@ -84,12 +84,12 @@ export INSTANCENUMBER=$(cat fleet_instances | grep -nr $INSTANCEID - | cut -d':'
 mv hashcat-*/ hashcat
 mv maskprocessor-*/ maskprocessor
 
-MANUALARGS=""
 if [[ "$(jq '.manualArguments' manifest.json)" != "null" ]]; then
-	MANUALARGS=$(jq -r '.manualArguments |= split(" ") | .manualArguments[]' /root/manifest.json | xargs -I {} sh -c "printf \"%q\n\" \"{}\"")
-fi
-
-echo "[*] using manual args [ $MANUALARGS ]"
+	MANUALARGS=$(jq -r '.manualArguments' manifest.json)
+	echo "[*] using manual args [ $MANUALARGS ]"
+else 
+	MANUALARGS=""
+fi 
 
 # if [[ "$(jq -r '.attackType' manifest.json)" == "0" ]]; then
 # 	# KEYSPACE=$(aws s3api head-object --bucket $BUCKET --key $(jq -r '.dictionaryFile' manifest.json) | jq -r '.Metadata.lines')
@@ -100,33 +100,39 @@ if [[ "$(jq -r '.attackType' manifest.json)" == "3" ]]; then
 
 	MASK=$(jq -r '.mask + .manualMask' manifest.json)
 
-	if  [[ $(echo $MANUALARGS | grep -P '\--increment|\-i' | wc -l) -lt 1 ]]; then
-		export KEYSPACE=$(hashcat --keyspace -m $(jq -r '.hashType' /root/manifest.json) -a 3 $MANUALARGS $MASK)
+	# check if --increment, -i at the start of a string or -i somewhere inline was provided
+	if  [[ $(echo "$MANUALARGS" | grep -P '\--increment|\s-i\s|^-i\s' | wc -l) -lt 1 ]]; then
+		export KEYSPACE=$(/root/hashcat/hashcat.bin --keyspace -m $(jq -r '.hashType' manifest.json) -a 3 $MANUALARGS $MASK)
 		KEYSPACERC=$?
 	else
 		# --increment flag was provided
 		KEYSPACE=0
-		# n of "--increment-min n" or 1 if increment-min was not set
-		ITERMIN=$(echo "$MANUALARGS" | grep -zoP '(?<=\--increment-min\n)\d{1,}(?=\n)' | sed 's/\x0//g')
+
+		# n of "--increment-min n","--increment-min=n" or 1 if increment-min was not set
+		ITERMIN=$(echo "$MANUALARGS" | grep -Po '(?<=(\--increment-min\s|\--increment-min=))\d{1,}')
 		ITERMIN=$${ITERMIN:-1}
 
-		# n of "--increment-max n" or get it directly from the mask
-		ITERMAX=$(echo "$MANUALARGS" | grep -zoP '(?<=\--increment-max\n)\d{1,}(?=\n)' | sed 's/\x0//g')
+		# n of "--increment-max n","--increment-max=n" or get it directly from the mask
+		ITERMAX=$(echo "$MANUALARGS" | grep -Po '(?<=(\--increment-max\s|\--increment-max=))\d{1,}')
 		IFS='?' read -ra MASKARR <<< "$MASK"
 		MASKARR=("$${MASKARR[@]:1}")
 		ITERMAX=$${ITERMAX:-$${#MASKARR[@]}}
 
+		# remove -i, --increment, --increment-min=n, --increment-min n, --increment-max=n and --increment-max n from MANUALARGS
+		CLEANARGS=$(echo "$MANUALARGS" | sed -r 's/(\--increment\s|^\-i\s|\s-i\s|\--increment-(min|max)(=|\s)[[:digit:]]+\s)//g')
+	
 		# iterate over each increment
 		for ITER in $(seq $ITERMIN $ITERMAX)
 		do
 			ITERMASK=$(echo $${MASKARR[@]:0:$ITER} | sed 's/ /?/g; s/^/?/g')
-			ITERKEYSPACE=$(/root/hashcat/hashcat.bin --keyspace -m $(jq -r '.hashType' /root/manifest.json) -a 3 $ITERMASK)
+			ITERKEYSPACE=$(/root/hashcat/hashcat.bin --keyspace -m $(jq -r '.hashType' manifest.json) -a 3 $CLEANARGS $ITERMASK)
 			KEYSPACERC=$?
-			export KEYSPACE=$(($KEYSPACE + $ITERKEYSPACE))
+			KEYSPACE=$(($KEYSPACE + $ITERKEYSPACE))
 		done
+		export KEYSPACE="$KEYSPACE"
 	fi
 else
-	export KEYSPACE=$(/root/hashcat/hashcat.bin --keyspace -m $(jq -r '.hashType' /root/manifest.json) -a $(jq -r '.attackType' /root/manifest.json) $MANUALARGS npk-wordlist/*)
+	export KEYSPACE=$(/root/hashcat/hashcat.bin --keyspace -m $(jq -r '.hashType' manifest.json) -a $(jq -r '.attackType' manifest.json) $MANUALARGS npk-wordlist/*)
 	KEYSPACERC=$?
 
 	if [[ "$(jq -r '.mask' manifest.json)" != "null" ]]; then
